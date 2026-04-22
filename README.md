@@ -1,5 +1,7 @@
 # 🚀 CryptoTrack — Real-Time Cryptocurrency Dashboard
 
+**Live Demo: [https://crypto-track-bice.vercel.app/](https://crypto-track-bice.vercel.app/)**
+
 A production-ready, high-performance React web application that tracks live cryptocurrency prices using the **CoinGecko Public API**. Features a beautiful dark/light UI, instant search, skeleton loaders, auto-polling, and deep-insight modals.
 
 ---
