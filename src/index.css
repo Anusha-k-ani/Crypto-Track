@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    @apply box-border;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400 dark:bg-slate-600;
+  }
+}
+
+@layer utilities {
+  /* Modal entry animations */
+  .animate-slideUp {
+    animation: slideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  .animate-fadeScale {
+    animation: fadeScale 0.25s ease-out both;
+  }
+
+  /* Price update flash highlight */
+  .animate-priceFlash {
+    animation: priceFlash 1.4s ease-out both;
+  }
+
+  /* Portfolio drawer slide-in from right */
+  .animate-drawerSlide {
+    animation: drawerSlide 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  /* Toast slide in from bottom-right */
+  .animate-toastSlide {
+    animation: toastSlide 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Subtle violet flash when a price updates */
+@keyframes priceFlash {
+  0%   { background-color: transparent; }
+  15%  { background-color: rgba(139, 92, 246, 0.12); }  /* violet-500/12% */
+  100% { background-color: transparent; }
+}
+
+@keyframes drawerSlide {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toastSlide {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
