@@ -282,7 +282,7 @@ function App() {
           >
             CoinGecko
           </a>{' '}
-          · Refreshes every 60s · Prices in USD
+          · Refreshes every 1 min · Prices in USD
         </p>
       </footer>
 

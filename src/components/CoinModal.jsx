@@ -1,9 +1,11 @@
-import React, { useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useEffect, useCallback, useMemo, useState, memo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   X, TrendingUp, TrendingDown, BarChart2, Activity, Coins,
-  ArrowUpCircle, ArrowDownCircle, ExternalLink, Award, Zap, Star, Plus
+  ArrowUpCircle, ArrowDownCircle, ExternalLink, Award, Zap, Star, Plus, LoaderCircle
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatPercent } from '../utils/formatters';
+import { fetchCoinChartData } from '../services/cryptoApi';
 
 // Memoized stat block
 const StatBlock = memo(({ icon: Icon, label, value, subValue, iconClass = '', accent = false }) => (
@@ -59,65 +61,200 @@ const PriceRangeBar = memo(({ low, high, current }) => {
 });
 PriceRangeBar.displayName = 'PriceRangeBar';
 
-// Mini sparkline using SVG path
-const MiniSparkline = memo(({ data, isPositive }) => {
+const CHART_RANGES = [
+  { key: '1', label: '24H' },
+  { key: '7', label: '7D' },
+  { key: '30', label: '30D' },
+  { key: '90', label: '3M' },
+];
+
+const InteractivePriceChart = memo(({
+  data,
+  selectedRange,
+  onRangeChange,
+  hoverIndex,
+  onHoverIndexChange,
+}) => {
   if (!data || data.length < 2) return null;
 
-  const width = 240;
-  const height = 48;
-  const padding = 4;
+  const width = 420;
+  const height = 180;
+  const padding = 18;
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const prices = data.map((point) => point[1]);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
   const range = max - min || 1;
 
-  const points = data.map((val, i) => {
+  const points = data.map((point, i) => {
     const x = padding + (i / (data.length - 1)) * (width - 2 * padding);
-    const y = padding + ((max - val) / range) * (height - 2 * padding);
-    return `${x},${y}`;
+    const y = padding + ((max - point[1]) / range) * (height - 2 * padding);
+    return { x, y };
   });
 
-  const pathD = `M ${points.join(' L ')}`;
-  const color = isPositive ? '#10b981' : '#ef4444';
-  const gradientId = `sparkline-gradient-${isPositive ? 'up' : 'down'}`;
+  const linePath = `M ${points.map((p) => `${p.x},${p.y}`).join(' L ')}`;
+  const areaPath = `${linePath} L ${width - padding},${height - padding} L ${padding},${height - padding} Z`;
 
-  // Area fill path
-  const areaD = `M ${points[0]} L ${points.join(' L ')} L ${width - padding},${height - padding} L ${padding},${height - padding} Z`;
+  const startPrice = prices[0];
+  const endPrice = prices[prices.length - 1];
+  const chartIsPositive = endPrice >= startPrice;
+  const color = chartIsPositive ? '#10b981' : '#ef4444';
+  const gradientId = `chart-gradient-${selectedRange}`;
+  const activeIndex = hoverIndex ?? data.length - 1;
+  const activePoint = points[activeIndex];
+  const activeData = data[activeIndex];
+
+  const handleMove = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const normalized = Math.max(0, Math.min(1, x / rect.width));
+    const index = Math.round(normalized * (data.length - 1));
+    onHoverIndexChange(index);
+  };
+
+  const handleTouchMove = (event) => {
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const normalized = Math.max(0, Math.min(1, x / rect.width));
+    const index = Math.round(normalized * (data.length - 1));
+    onHoverIndexChange(index);
+  };
+
+  const handleLeave = () => onHoverIndexChange(null);
+
+  const timestamp = activeData?.[0];
+  const activePrice = activeData?.[1];
 
   return (
     <div className="px-5 pb-4">
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-        7-Day Trend
-      </p>
-      <div className="rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-800/40 p-2">
-        <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          {/* Area fill */}
-          <path d={areaD} fill={`url(#${gradientId})`} />
-          {/* Line */}
-          <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          {/* Last point dot */}
-          <circle
-            cx={points[points.length - 1].split(',')[0]}
-            cy={points[points.length - 1].split(',')[1]}
-            r="3"
-            fill={color}
-            stroke="white"
-            strokeWidth="1.5"
-          />
-        </svg>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          Live Price Chart
+        </p>
+        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 rounded-lg p-1">
+          {CHART_RANGES.map((rangeOpt) => (
+            <button
+              key={rangeOpt.key}
+              type="button"
+              onClick={() => onRangeChange(rangeOpt.key)}
+              className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-colors
+                ${selectedRange === rangeOpt.key
+                  ? 'bg-violet-600 text-white'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+            >
+              {rangeOpt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-800/40 p-3"
+        onMouseMove={handleMove}
+        onTouchMove={handleTouchMove}
+        onTouchStart={handleTouchMove}
+        onTouchEnd={handleLeave}
+        onMouseLeave={handleLeave}
+      >
+        <AnimatePresence mode="wait">
+          <motion.svg
+            key={selectedRange}
+            width="100%"
+            viewBox={`0 0 ${width} ${height}`}
+            preserveAspectRatio="none"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.24, ease: 'easeOut' }}
+          >
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity="0.32" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <motion.path
+              d={areaPath}
+              fill={`url(#${gradientId})`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            />
+            <motion.path
+              d={linePath}
+              fill="none"
+              stroke={color}
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              initial={{ pathLength: 0, opacity: 0.7 }}
+              animate={{ pathLength: 1, opacity: 1 }}
+              transition={{ duration: 0.45, ease: 'easeOut' }}
+            />
+            {activePoint && (
+              <>
+                <motion.line
+                  x1={activePoint.x}
+                  x2={activePoint.x}
+                  y1={padding}
+                  y2={height - padding}
+                  stroke={color}
+                  strokeWidth="1"
+                  strokeDasharray="2 3"
+                  initial={false}
+                  animate={{ x1: activePoint.x, x2: activePoint.x, opacity: 0.75 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 28, mass: 0.45 }}
+                />
+                <motion.circle
+                  cx={activePoint.x}
+                  cy={activePoint.y}
+                  r="4"
+                  fill={color}
+                  stroke="white"
+                  strokeWidth="1.5"
+                  initial={false}
+                  animate={{ cx: activePoint.x, cy: activePoint.y, scale: 1 }}
+                  whileHover={{ scale: 1.08 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 30, mass: 0.4 }}
+                />
+              </>
+            )}
+          </motion.svg>
+        </AnimatePresence>
+
+        <motion.div
+          key={`${selectedRange}-${activeIndex}`}
+          className="mt-2 flex items-center justify-between text-xs"
+          initial={{ opacity: 0.4, y: 2 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <span className={`font-bold ${chartIsPositive ? 'text-emerald-500' : 'text-red-500'}`}>
+            {formatPercent(((endPrice - startPrice) / startPrice) * 100)}
+          </span>
+          <span className="text-slate-500 dark:text-slate-400 tabular-nums">
+            {activePrice != null ? formatCurrency(activePrice) : formatCurrency(endPrice)}
+          </span>
+          <span className="text-slate-400 dark:text-slate-500">
+            {timestamp ? new Date(timestamp).toLocaleString() : ''}
+          </span>
+        </motion.div>
       </div>
     </div>
   );
 });
-MiniSparkline.displayName = 'MiniSparkline';
+InteractivePriceChart.displayName = 'InteractivePriceChart';
 
 const CoinModal = ({ coin, onClose, isWatched, onWatchlistToggle, onAddToPortfolio }) => {
+  const [selectedRange, setSelectedRange] = useState('7');
+  const [chartData, setChartData] = useState([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [hoverIndex, setHoverIndex] = useState(null);
+  const [chartError, setChartError] = useState('');
+
   const handleEsc = useCallback((e) => {
     if (e.key === 'Escape') onClose();
   }, [onClose]);
@@ -136,15 +273,63 @@ const CoinModal = ({ coin, onClose, isWatched, onWatchlistToggle, onAddToPortfol
   const change7d = coin?.price_change_percentage_7d_in_currency;
   const isPositive = useMemo(() => (change24h ?? 0) >= 0, [change24h]);
   const is7dPositive = useMemo(() => (change7d ?? 0) >= 0, [change7d]);
+  const fallbackSparklineData = useMemo(() => {
+    const prices = coin?.sparkline_in_7d?.price;
+    if (!prices || prices.length < 2) return [];
 
-  // Derive sparkline from ATH/ATL context (synthetic 7-day trend from available data)
-  const sparklineData = useMemo(() => {
-    if (!coin) return null;
-    return coin.sparkline_in_7d?.price ?? null;
+    const now = Date.now();
+    const windowMs = 7 * 24 * 60 * 60 * 1000;
+    const stepMs = windowMs / (prices.length - 1);
+    return prices.map((price, index) => [now - windowMs + (index * stepMs), price]);
   }, [coin]);
 
   // Price range position
   const hasPriceRange = coin?.high_24h && coin?.low_24h && coin?.current_price;
+  const displayedChartData = useMemo(() => {
+    if (chartData.length > 1) return chartData;
+    if (selectedRange === '7' && fallbackSparklineData.length > 1) return fallbackSparklineData;
+    return [];
+  }, [chartData, selectedRange, fallbackSparklineData]);
+
+  useEffect(() => {
+    setSelectedRange('7');
+    setHoverIndex(null);
+    setChartError('');
+  }, [coin?.id]);
+
+  useEffect(() => {
+    if (!coin?.id) return undefined;
+
+    let active = true;
+
+    const loadChart = async () => {
+      setChartLoading(true);
+      setChartError('');
+      try {
+        const prices = await fetchCoinChartData(coin.id, selectedRange);
+        if (active) setChartData(prices);
+      } catch (error) {
+        if (active) {
+          setChartData([]);
+          const isRateLimit = error?.response?.status === 429;
+          setChartError(isRateLimit
+            ? 'Rate limit reached for live chart. Showing cached 7D trend when available.'
+            : 'Live chart data is temporarily unavailable.'
+          );
+        }
+      } finally {
+        if (active) setChartLoading(false);
+      }
+    };
+
+    loadChart();
+
+    const interval = setInterval(loadChart, 60000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [coin?.id, selectedRange]);
 
   if (!coin) return null;
 
@@ -278,9 +463,47 @@ const CoinModal = ({ coin, onClose, isWatched, onWatchlistToggle, onAddToPortfol
           />
         )}
 
-        {/* 7-Day Sparkline */}
-        {sparklineData && sparklineData.length > 1 && (
-          <MiniSparkline data={sparklineData} isPositive={isPositive} />
+        {/* Interactive Price Chart */}
+        {chartLoading && (
+          <div className="px-5 pb-4">
+            <motion.div
+              initial={{ opacity: 0.45, scale: 0.99 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.25 }}
+              className="h-40 rounded-xl bg-slate-100 dark:bg-slate-800/50 relative overflow-hidden border border-slate-200/70 dark:border-slate-700/50"
+            >
+              <motion.div
+                className="absolute inset-y-0 -left-1/3 w-1/3 bg-white/40 dark:bg-white/10"
+                animate={{ x: ['0%', '300%'] }}
+                transition={{ duration: 1.1, repeat: Infinity, ease: 'linear' }}
+              />
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
+                <LoaderCircle className="w-5 h-5 animate-spin text-violet-500" />
+                <p className="text-xs font-medium">Loading chart...</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {!chartLoading && displayedChartData.length > 1 && (
+          <InteractivePriceChart
+            data={displayedChartData}
+            selectedRange={selectedRange}
+            onRangeChange={setSelectedRange}
+            hoverIndex={hoverIndex}
+            onHoverIndexChange={setHoverIndex}
+          />
+        )}
+        {!chartLoading && displayedChartData.length <= 1 && (
+          <div className="px-5 pb-4">
+            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700/50 p-3 text-xs text-slate-500 dark:text-slate-400">
+              {chartError || 'Chart data unavailable right now.'}
+            </div>
+          </div>
+        )}
+        {chartError && displayedChartData.length > 1 && (
+          <div className="px-5 pb-4 -mt-2">
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">{chartError}</p>
+          </div>
         )}
 
         {/* Stats Grid */}
